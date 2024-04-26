@@ -74,7 +74,8 @@ SEXP PEGS(Eigen::MatrixXd Y, Eigen::MatrixXd X){
   double deflate = 1.0, deflateMax = 0.75;
   Eigen::MatrixXd beta0(p,k), A(k,k);
   double cnv = 10.0, logtol = -10.0;
-  int numit = 0;
+  int numit = 0; A = vb*1.0;
+  Eigen::SelfAdjointEigenSolver<Eigen::MatrixXf> EVDofA(A);
   
   // Loop
   while(numit<maxit){
@@ -110,14 +111,10 @@ SEXP PEGS(Eigen::MatrixXd Y, Eigen::MatrixXd X){
     
     // Bending
     A = vb*1.0;
-    for(int i=0; i<k; i++){
-      for(int j=0; j<k; j++){
-        if(i!=j){A(i,j) *= deflate;}}}
-    while(A.llt().info()==Eigen::NumericalIssue && deflate>deflateMax){
-      Rcpp::Rcout << "Bend at "<< numit << "\n";  deflate = deflate - 0.01;
-      for(int i=0; i<k; i++){for(int j=0; j<k; j++){if(i!=j){A(i,j) = vb(i,j)*deflate;}}}
-    }
-    iG = A.inverse();
+    EVDofA.compute(A); MinDVb = EVDofA.eigenvalues().minCoeff();
+    if( MinDVb < 0.0 ){ inflate = abs(MinDVb*1.1);
+    A.diagonal().array()+=inflate; A/=(1.0+inflate); GC=A*1.0;}
+    iG = vb.completeOrthogonalDecomposition().pseudoInverse();
     
     // Print status
     cnv = log10((beta0.array()-b.array()).square().sum());  ++numit;
