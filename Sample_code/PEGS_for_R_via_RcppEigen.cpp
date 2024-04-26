@@ -112,7 +112,7 @@ SEXP PEGS(Eigen::MatrixXd Y, Eigen::MatrixXd X){
     A = vb*1.0;
     EVDofA.compute(A); MinDVb = EVDofA.eigenvalues().minCoeff();
     if( MinDVb < 0.0 ){ inflate = abs(MinDVb*1.1);
-    A.diagonal().array()+=inflate; A/=(1.0+inflate); GC=A*1.0;}
+    A.diagonal().array()+=inflate; GC=A*1.0;}
     iG = vb.completeOrthogonalDecomposition().pseudoInverse();
     
     // Print status
