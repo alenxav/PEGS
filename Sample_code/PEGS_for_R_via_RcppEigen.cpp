@@ -71,7 +71,6 @@ SEXP PEGS(Eigen::MatrixXd Y, Eigen::MatrixXd X){
   int J;
   
   // Convergence control
-  double deflate = 1.0, deflateMax = 0.75;
   Eigen::MatrixXd beta0(p,k), A(k,k);
   double cnv = 10.0, logtol = -10.0;
   int numit = 0; A = vb*1.0;
