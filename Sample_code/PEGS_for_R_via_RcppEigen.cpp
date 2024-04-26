@@ -137,7 +137,6 @@ SEXP PEGS(Eigen::MatrixXd Y, Eigen::MatrixXd X){
                             Rcpp::Named("hat")=hat,
                             Rcpp::Named("h2")=h2,
                             Rcpp::Named("GC")=GC,
-                            Rcpp::Named("bend")=deflate,
                             Rcpp::Named("cnv")=cnv);
   
 }
