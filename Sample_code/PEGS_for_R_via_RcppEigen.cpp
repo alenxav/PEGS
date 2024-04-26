@@ -72,7 +72,7 @@ SEXP PEGS(Eigen::MatrixXd Y, Eigen::MatrixXd X){
   
   // Convergence control
   Eigen::MatrixXd beta0(p,k), A(k,k);
-  double cnv = 10.0, logtol = -10.0, MinDVb;
+  double cnv = 10.0, logtol = -10.0, MinDVb, inflate;
   int numit = 0; A = vb*1.0;
   Eigen::SelfAdjointEigenSolver<Eigen::MatrixXf> EVDofA(A);
   
