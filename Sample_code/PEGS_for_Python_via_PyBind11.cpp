@@ -18,7 +18,7 @@ using namespace pybind11::literals;
 py::dict PEGS(Eigen::MatrixXd Y, Eigen::MatrixXd X){
   
   // Basic info
-  int maxit = 500;
+  int maxit = 100;
   int k = Y.cols(), n0 = Y.rows(), p = X.cols();
   
   // Incidence matrix Z
@@ -177,6 +177,7 @@ PYBIND11_MODULE(RR15,m){
 // # Run in python with
 // import PEGS
 // fit = PEGS.MRR(Y=Y,X=X)
+
 
 
 
