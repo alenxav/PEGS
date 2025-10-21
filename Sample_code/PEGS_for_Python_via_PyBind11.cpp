@@ -16,9 +16,12 @@ using namespace Eigen;
 using namespace pybind11::literals;
 
 py::dict PEGS(Eigen::MatrixXd Y, Eigen::MatrixXd X){
-  
-  // Basic info
+
+  // Convergence parameters
   int maxit = 100;
+  double logtol = -6.0;
+  
+  // Basic info  
   int k = Y.cols(), n0 = Y.rows(), p = X.cols();
   
   // Incidence matrix Z
@@ -83,7 +86,7 @@ py::dict PEGS(Eigen::MatrixXd Y, Eigen::MatrixXd X){
   
   // Convergence control
   Eigen::MatrixXd beta0(p,k);
-  double cnv = 10.0, logtol = -10.0, MinDVb, inflate;
+  double cnv = 10.0, MinDVb, inflate;
   int numit = 0;
   Eigen::SelfAdjointEigenSolver<Eigen::MatrixXf> EVDofA(vb);
   
@@ -177,6 +180,7 @@ PYBIND11_MODULE(RR15,m){
 // # Run in python with
 // import PEGS
 // fit = PEGS.MRR(Y=Y,X=X)
+
 
 
 
