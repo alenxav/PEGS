@@ -109,11 +109,10 @@ SEXP PEGS(Eigen::MatrixXd Y, Eigen::MatrixXd X){
           vb(i,j) = (TildeHat(i,j)+TildeHat(j,i))/(TrXSX(i)+TrXSX(j));}}}
     
     // Bending
-    A = vb*1.0;
-    EVDofA.compute(A); MinDVb = EVDofA.eigenvalues().minCoeff();
-    if( MinDVb < 0.0 ){ inflate = abs(MinDVb*1.1);
-    A.diagonal().array()+=inflate; vb=A*1.0;}
-    iG = vb.completeOrthogonalDecomposition().pseudoInverse();
+    A = vb*1.0; EVDofA.compute(A); MinDVb = EVDofA.eigenvalues().minCoeff();
+    if( MinDVb < 0.001 ){if(abs(MinDVb*1.1)>inflate) inflate = abs(MinDVb*1.1);}
+    A.diagonal().array()+=inflate; vb=A*1.0; 
+    iG = vb.inverse();
     
     // Print status
     cnv = log10((beta0.array()-b.array()).square().sum());  ++numit;
@@ -137,6 +136,9 @@ SEXP PEGS(Eigen::MatrixXd Y, Eigen::MatrixXd X){
                             Rcpp::Named("hat")=hat,
                             Rcpp::Named("h2")=h2,
                             Rcpp::Named("GC")=GC,
+                            Rcpp::Named("bend")=inflate,
+                            Rcpp::Named("numit")=numit,
                             Rcpp::Named("cnv")=cnv);
   
 }
+
