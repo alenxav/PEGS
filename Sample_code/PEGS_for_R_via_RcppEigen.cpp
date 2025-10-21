@@ -7,7 +7,7 @@
 SEXP PEGS(Eigen::MatrixXd Y, Eigen::MatrixXd X){
   
   // Basic info
-  int maxit = 1000;
+  int maxit = 100;
   int k = Y.cols(), n0 = Y.rows(), p = X.cols();
   
   // Incidence matrix Z
@@ -148,5 +148,6 @@ SEXP PEGS(Eigen::MatrixXd Y, Eigen::MatrixXd X){
                             Rcpp::Named("cnv")=cnv);
   
 }
+
 
 
