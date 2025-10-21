@@ -82,10 +82,10 @@ py::dict PEGS(Eigen::MatrixXd Y, Eigen::MatrixXd X){
   int J;
   
   // Convergence control
-  Eigen::MatrixXd beta0(p,k), A(k,k);
+  Eigen::MatrixXd beta0(p,k);
   double cnv = 10.0, logtol = -10.0, MinDVb, inflate;
-  int numit = 0; A = vb*1.0;
-  Eigen::SelfAdjointEigenSolver<Eigen::MatrixXf> EVDofA(A);
+  int numit = 0;
+  Eigen::SelfAdjointEigenSolver<Eigen::MatrixXf> EVDofA(vb);
   
   // Loop
   while(numit<maxit){
@@ -120,10 +120,17 @@ py::dict PEGS(Eigen::MatrixXd Y, Eigen::MatrixXd X){
           vb(i,j) = (TildeHat(i,j)+TildeHat(j,i))/(TrXSX(i)+TrXSX(j));}}}
     
     // Bending
-    A = vb*1.0; EVDofA.compute(A); MinDVb = EVDofA.eigenvalues().minCoeff();
-    if( MinDVb < 0.001 ){if(abs(MinDVb*1.1)>inflate) inflate = abs(MinDVb*1.1);}
-    A.diagonal().array()+=inflate; vb=A*1.0; 
-    iG = vb.inverse();
+    if(NonNegativeCorr) vb = vb.array().cwiseMax(0.0).matrix();
+    EVDofA.compute(vb); MinDVb = EVDofA.eigenvalues().minCoeff();
+    if( MinDVb < 0.001 ){if(abs(MinDVb*1.01)>inflate) inflate = abs(MinDVb*1.01);}
+    vb.diagonal().array()+=inflate; 
+    iG = vb.completeOrthogonalDecomposition().pseudoInverse();
+    
+    // Update intercept
+    b0 = e.colwise().sum();
+    b0 = b0.array() * iN.array();
+    for(int i=0; i<k; i++){ mu(i) += b0(i);
+      e.col(i) = (e.col(i).array()-b0(i)).array() * Z.col(i).array();}
     
     // Print status
     cnv = log10((beta0.array()-b.array()).square().sum());  ++numit;
@@ -170,5 +177,6 @@ PYBIND11_MODULE(RR15,m){
 // # Run in python with
 // import PEGS
 // fit = PEGS.MRR(Y=Y,X=X)
+
 
 
