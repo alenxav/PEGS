@@ -18,7 +18,7 @@ using namespace pybind11::literals;
 py::dict PEGS(Eigen::MatrixXd Y, Eigen::MatrixXd X){
   
   // Basic info
-  int maxit = 1000;
+  int maxit = 500;
   int k = Y.cols(), n0 = Y.rows(), p = X.cols();
   
   // Incidence matrix Z
@@ -148,6 +148,8 @@ py::dict PEGS(Eigen::MatrixXd Y, Eigen::MatrixXd X){
   out["hat"] = hat;  
   out["mu"] = mu;  
   out["b"] = b;  
+  out["bend"] = inflate;  
+  out["numit"] = numit;  
   out["cnv"] = cnv;
   return(out);
   
@@ -159,15 +161,7 @@ py::dict PEGS(Eigen::MatrixXd Y, Eigen::MatrixXd X){
 
 PYBIND11_MODULE(RR15,m){
   m.def("MRR", &MRR, "Multivariate Ridge Regression",
-        py::arg("Y"),
-        py::arg("X"),
-        py::arg("maxit") = 1000,
-        py::arg("tol") = 10e-8,
-        py::arg("cores") = 2,
-        py::arg("TH") = false,
-        py::arg("NLfactor") = 0.0,
-        py::arg("HCS") = false,
-        py::arg("XFA2") = false);
+        py::arg("Y"), py::arg("X"));
 }
 
 // # Compile with
@@ -176,4 +170,5 @@ PYBIND11_MODULE(RR15,m){
 // # Run in python with
 // import PEGS
 // fit = PEGS.MRR(Y=Y,X=X)
+
 
