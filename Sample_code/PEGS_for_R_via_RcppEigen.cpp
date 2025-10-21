@@ -5,9 +5,12 @@
 
 // [[Rcpp::export]]
 SEXP PEGS(Eigen::MatrixXd Y, Eigen::MatrixXd X){
+
+  // Convergence parameters
+  int maxit = 100;
+  double logtol = -6.0;
   
   // Basic info
-  int maxit = 100;
   int k = Y.cols(), n0 = Y.rows(), p = X.cols();
   
   // Incidence matrix Z
@@ -72,7 +75,7 @@ SEXP PEGS(Eigen::MatrixXd Y, Eigen::MatrixXd X){
   
   // Convergence control
   Eigen::MatrixXd beta0(p,k);
-  double cnv = 10.0, logtol = -10.0, MinDVb, inflate;
+  double cnv = 10.0, MinDVb, inflate;
   int numit = 0;
   Eigen::SelfAdjointEigenSolver<Eigen::MatrixXf> EVDofA(vb);
   
@@ -148,6 +151,7 @@ SEXP PEGS(Eigen::MatrixXd Y, Eigen::MatrixXd X){
                             Rcpp::Named("cnv")=cnv);
   
 }
+
 
 
 
