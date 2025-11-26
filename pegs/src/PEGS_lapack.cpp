@@ -9,6 +9,18 @@
 #include <algorithm>
 #include <stdexcept>
 
+// --- Preprocessor macro for platform-specific Fortran calling ---
+#if defined(_WIN32) || defined(__WIN32__)
+// On Windows, we need to manually pass the length of character arguments
+#define ADD_FC_LEN , (size_t)1
+#define ADD_FC_LEN2 , (size_t)1, (size_t)1
+#else
+// On Linux and other systems, this is handled automatically
+#define ADD_FC_LEN
+#define ADD_FC_LEN2
+#endif
+// ----------------------------------------------------------------
+
 // Helper function for column-major indexing (as used by R and FORTRAN)
 inline int idx(int row, int col, int num_rows) {
   return row + col * num_rows;
@@ -135,8 +147,7 @@ extern "C" {
     std::vector<double> tilde(p * k);
     char transa = 'T', transb = 'N';
     double alpha = 1.0, beta = 0.0;
-    // FIX: Add string length arguments for gfortran on Windows
-    F77_CALL(dgemm)(&transa, &transb, &p, &k, &n0, &alpha, X_ptr, &n0, y.data(), &n0, &beta, tilde.data(), &p, (size_t)1, (size_t)1);
+    F77_CALL(dgemm)(&transa, &transb, &p, &k, &n0, &alpha, X_ptr, &n0, y.data(), &n0, &beta, tilde.data(), &p ADD_FC_LEN2);
     
     // --- 4. Initialize Iteration Variables ---
     std::vector<double> b(p * k, 0.0);
@@ -169,15 +180,13 @@ extern "C" {
         }
         
         char uplo = 'U'; int info;
-        // FIX: Add string length arguments
-        F77_CALL(dpotrf)(&uplo, &k, LHS.data(), &k, &info, (size_t)1);
+        F77_CALL(dpotrf)(&uplo, &k, LHS.data(), &k, &info ADD_FC_LEN);
         if (info != 0) {
           warning("Cholesky factorization failed in inner loop (marker %d). Skipping update.", J + 1);
           continue;
         }
         int nrhs = 1;
-        // FIX: Add string length arguments
-        F77_CALL(dpotrs)(&uplo, &k, &nrhs, LHS.data(), &k, RHS.data(), &k, &info, (size_t)1);
+        F77_CALL(dpotrs)(&uplo, &k, &nrhs, LHS.data(), &k, RHS.data(), &k, &info ADD_FC_LEN);
         std::vector<double> b1 = RHS;
         
         for (int i=0; i<k; ++i) {
@@ -197,8 +206,7 @@ extern "C" {
       }
       
       std::vector<double> TildeHat(k * k);
-      // FIX: Add string length arguments
-      F77_CALL(dgemm)(&transa, &transb, &k, &k, &p, &alpha, b.data(), &p, tilde.data(), &p, &beta, TildeHat.data(), &k, (size_t)1, (size_t)1);
+      F77_CALL(dgemm)(&transa, &transb, &k, &k, &p, &alpha, b.data(), &p, tilde.data(), &p, &beta, TildeHat.data(), &k ADD_FC_LEN2);
       
       for (int c = 0; c < k; ++c) {
         for (int r = c; r < k; ++r) {
@@ -221,8 +229,7 @@ extern "C" {
       char jobz = 'N', uplo_eig = 'U'; int info_eig;
       int lwork = std::max(1, 3 * k - 1); 
       std::vector<double> work(lwork);
-      // FIX: Add string length arguments
-      F77_CALL(dsyev)(&jobz, &uplo_eig, &k, vb_copy.data(), &k, eigvals.data(), work.data(), &lwork, &info_eig, (size_t)1, (size_t)1);
+      F77_CALL(dsyev)(&jobz, &uplo_eig, &k, vb_copy.data(), &k, eigvals.data(), work.data(), &lwork, &info_eig ADD_FC_LEN2);
       
       double MinDVb = eigvals[0];
       for(int i=1; i<k; ++i) if(eigvals[i] < MinDVb) MinDVb = eigvals[i];
@@ -235,11 +242,9 @@ extern "C" {
       
       vb_copy = vb;
       char uplo_inv = 'U'; int info_inv;
-      // FIX: Add string length arguments
-      F77_CALL(dpotrf)(&uplo_inv, &k, vb_copy.data(), &k, &info_inv, (size_t)1);
+      F77_CALL(dpotrf)(&uplo_inv, &k, vb_copy.data(), &k, &info_inv ADD_FC_LEN);
       if(info_inv == 0){
-        // FIX: Add string length arguments
-        F77_CALL(dpotri)(&uplo_inv, &k, vb_copy.data(), &k, &info_inv, (size_t)1);
+        F77_CALL(dpotri)(&uplo_inv, &k, vb_copy.data(), &k, &info_inv ADD_FC_LEN);
         if (info_inv == 0) {
           for (int c=0; c<k; ++c) for(int r=c+1; r<k; ++r) vb_copy[idx(r,c,k)] = vb_copy[idx(c,r,k)];
           iG = vb_copy;
@@ -275,11 +280,9 @@ extern "C" {
     
     std::vector<double> hat(n0*k, 0.0);
     char transb_final = 'N';
-    // FIX: Add string length arguments
-    F77_CALL(dgemm)(&transb_final, &transb_final, &n0, &k, &p, &alpha, X_ptr, &n0, b.data(), &p, &beta, hat.data(), &n0, (size_t)1, (size_t)1);
+    F77_CALL(dgemm)(&transb_final, &transb_final, &n0, &k, &p, &alpha, X_ptr, &n0, b.data(), &p, &beta, hat.data(), &n0 ADD_FC_LEN2);
     for(int j=0; j<k; ++j) for(int i=0; i<n0; ++i) hat[idx(i,j,n0)] += mu[j];
     
-    // FIX: Corrected the entire corrupted loop
     std::vector<double> GC(k*k, 0.0);
     for(int c=0; c<k; ++c) {
       for(int r=c; r<k; ++r){
