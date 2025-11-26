@@ -1,4 +1,4 @@
-pegs <- function(Y, X, maxit = 100, logtol = -4.0, NonNegativeCorr = TRUE) {
+pegs <- function(Y, X, maxit = 100, logtol = -4.0, NonNegativeCorr = FALSE) {
   # Type check
   if (!is.matrix(Y)) Y <- as.matrix(Y)
   if (typeof(Y) == "integer") storage.mode(Y) <- "numeric"
