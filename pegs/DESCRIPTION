@@ -1,0 +1,12 @@
+Package: pegs
+Type: Package
+Title: Pseudo-Expectation Gauss-Seidel
+Version: 0.1
+Date: 2025-11-26
+Maintainer: Alencar Xavier <alenxav@gmail.com>
+Authors@R: c(person("Alencar", "Xavier", role=c("aut", "cre"), email = "alenxav@gmail.com", comment = c(ORCID = "0000-0001-5034-9954")), person("David", "Habier", role=c("aut")))
+Description: Lightweight, dependency-free, simplified implementation of the Pseudo-Expectation Gauss-Seidel (PEGS) algorithm used as a multivariate genomic prediction models (<doi:10.1186/s12711-022-00730-w>, <doi:10.1093/genetics/iyae179>).
+License: GPL-3
+Depends: R (>= 2.0)
+NeedsCompilation: yes
+Repository: CRAN
