@@ -9,7 +9,8 @@
 #include <algorithm>
 #include <stdexcept>
 
-// NOTE: No more preprocessor hacks are needed. We are using R's C wrappers.
+// NOTE: No preprocessor logic is needed, as we now require R >= 3.6.0,
+// which guarantees the existence of the Rf_* C wrappers.
 
 // Helper function for column-major indexing (as used by R and FORTRAN)
 inline int idx(int row, int col, int num_rows) {
