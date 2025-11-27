@@ -12,12 +12,12 @@
 // --- Preprocessor macro for platform-specific Fortran calling ---
 // Combine the official R macro with a Windows check as a fallback
 #if defined(USE_FC_LEN_T) || defined(_WIN32) || defined(__WIN32__)
-#define ADD_FC_LEN , (size_t)1
-#define ADD_FC_LEN2 , (size_t)1, (size_t)1
+  #define ADD_FC_LEN , (size_t)1
+  #define ADD_FC_LEN2 , (size_t)1, (size_t)1
 #else
-// On other systems, this is handled automatically
-#define ADD_FC_LEN
-#define ADD_FC_LEN2
+  // On other systems, this is handled automatically
+  #define ADD_FC_LEN
+  #define ADD_FC_LEN2
 #endif
 // ----------------------------------------------------------------
 
