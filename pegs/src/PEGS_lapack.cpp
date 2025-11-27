@@ -10,14 +10,17 @@
 #include <stdexcept>
 
 // --- Preprocessor macro for platform-specific Fortran calling ---
-// Combine the official R macro with a Windows check as a fallback
-#if defined(USE_FC_LEN_T) || defined(_WIN32) || defined(__WIN32__)
-  #define ADD_FC_LEN , (size_t)1
-  #define ADD_FC_LEN2 , (size_t)1, (size_t)1
-#else
-  // On other systems, this is handled automatically
+// This logic has been refined to handle inconsistencies across compilers.
+// The Clang compiler seems to handle string lengths automatically via its R headers,
+// while g++ (on both Windows and some Linux builds) requires them to be passed manually.
+#if defined(__clang__)
+  // Clang builds do not want the extra arguments.
   #define ADD_FC_LEN
   #define ADD_FC_LEN2
+#else
+  // Assume other compilers (like g++ on Windows or Linux) need the arguments.
+  #define ADD_FC_LEN , (size_t)1
+  #define ADD_FC_LEN2 , (size_t)1, (size_t)1
 #endif
 // ----------------------------------------------------------------
 
