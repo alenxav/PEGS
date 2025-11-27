@@ -2,7 +2,6 @@
 #include <Rinternals.h>
 #include <R_ext/Lapack.h>
 #include <R_ext/BLAS.h>
-#include <R_ext/RS.h> // To ensure FCLEN is available if defined
 
 #include <vector>
 #include <cmath>
@@ -10,20 +9,7 @@
 #include <algorithm>
 #include <stdexcept>
 
-// --- Preprocessor macro for platform-specific Fortran calling ---
-// This is the canonical way to handle differing Fortran ABI requirements.
-// The FCLEN macro is defined by R's build system only on platforms where
-// the hidden string-length arguments are expected.
-#ifdef FCLEN
-  // This build of R expects the hidden string-length arguments to be passed.
-  #define ADD_FC_LEN , (size_t)1
-  #define ADD_FC_LEN2 , (size_t)1, (size_t)1
-#else
-  // This build of R does not expect the hidden arguments.
-  #define ADD_FC_LEN
-  #define ADD_FC_LEN2
-#endif
-// ----------------------------------------------------------------
+// NOTE: No more preprocessor hacks are needed. We are using R's C wrappers.
 
 // Helper function for column-major indexing (as used by R and FORTRAN)
 inline int idx(int row, int col, int num_rows) {
@@ -151,7 +137,7 @@ extern "C" {
     std::vector<double> tilde(p * k);
     char transa = 'T', transb = 'N';
     double alpha = 1.0, beta = 0.0;
-    F77_CALL(dgemm)(&transa, &transb, &p, &k, &n0, &alpha, X_ptr, &n0, y.data(), &n0, &beta, tilde.data(), &p ADD_FC_LEN2);
+    Rf_dgemm(&transa, &transb, &p, &k, &n0, &alpha, X_ptr, &n0, y.data(), &n0, &beta, tilde.data(), &p);
     
     // --- 4. Initialize Iteration Variables ---
     std::vector<double> b(p * k, 0.0);
@@ -184,13 +170,13 @@ extern "C" {
         }
         
         char uplo = 'U'; int info;
-        F77_CALL(dpotrf)(&uplo, &k, LHS.data(), &k, &info ADD_FC_LEN);
+        Rf_dpotrf(&uplo, &k, LHS.data(), &k, &info);
         if (info != 0) {
           warning("Cholesky factorization failed in inner loop (marker %d). Skipping update.", J + 1);
           continue;
         }
         int nrhs = 1;
-        F77_CALL(dpotrs)(&uplo, &k, &nrhs, LHS.data(), &k, RHS.data(), &k, &info ADD_FC_LEN);
+        Rf_dpotrs(&uplo, &k, &nrhs, LHS.data(), &k, RHS.data(), &k, &info);
         std::vector<double> b1 = RHS;
         
         for (int i=0; i<k; ++i) {
@@ -210,7 +196,7 @@ extern "C" {
       }
       
       std::vector<double> TildeHat(k * k);
-      F77_CALL(dgemm)(&transa, &transb, &k, &k, &p, &alpha, b.data(), &p, tilde.data(), &p, &beta, TildeHat.data(), &k ADD_FC_LEN2);
+      Rf_dgemm(&transa, &transb, &k, &k, &p, &alpha, b.data(), &p, tilde.data(), &p, &beta, TildeHat.data(), &k);
       
       for (int c = 0; c < k; ++c) {
         for (int r = c; r < k; ++r) {
@@ -233,7 +219,7 @@ extern "C" {
       char jobz = 'N', uplo_eig = 'U'; int info_eig;
       int lwork = std::max(1, 3 * k - 1); 
       std::vector<double> work(lwork);
-      F77_CALL(dsyev)(&jobz, &uplo_eig, &k, vb_copy.data(), &k, eigvals.data(), work.data(), &lwork, &info_eig ADD_FC_LEN2);
+      Rf_dsyev(&jobz, &uplo_eig, &k, vb_copy.data(), &k, eigvals.data(), work.data(), &lwork, &info_eig);
       
       double MinDVb = eigvals[0];
       for(int i=1; i<k; ++i) if(eigvals[i] < MinDVb) MinDVb = eigvals[i];
@@ -246,9 +232,9 @@ extern "C" {
       
       vb_copy = vb;
       char uplo_inv = 'U'; int info_inv;
-      F77_CALL(dpotrf)(&uplo_inv, &k, vb_copy.data(), &k, &info_inv ADD_FC_LEN);
+      Rf_dpotrf(&uplo_inv, &k, vb_copy.data(), &k, &info_inv);
       if(info_inv == 0){
-        F77_CALL(dpotri)(&uplo_inv, &k, vb_copy.data(), &k, &info_inv ADD_FC_LEN);
+        Rf_dpotri(&uplo_inv, &k, vb_copy.data(), &k, &info_inv);
         if (info_inv == 0) {
           for (int c=0; c<k; ++c) for(int r=c+1; r<k; ++r) vb_copy[idx(r,c,k)] = vb_copy[idx(c,r,k)];
           iG = vb_copy;
@@ -284,7 +270,7 @@ extern "C" {
     
     std::vector<double> hat(n0*k, 0.0);
     char transb_final = 'N';
-    F77_CALL(dgemm)(&transb_final, &transb_final, &n0, &k, &p, &alpha, X_ptr, &n0, b.data(), &p, &beta, hat.data(), &n0 ADD_FC_LEN2);
+    Rf_dgemm(&transb_final, &transb_final, &n0, &k, &p, &alpha, X_ptr, &n0, b.data(), &p, &beta, hat.data(), &n0);
     for(int j=0; j<k; ++j) for(int i=0; i<n0; ++i) hat[idx(i,j,n0)] += mu[j];
     
     std::vector<double> GC(k*k, 0.0);
