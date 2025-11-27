@@ -5,7 +5,9 @@ Version: 0.1
 Date: 2025-11-26
 Maintainer: Alencar Xavier <alenxav@gmail.com>
 Authors@R: c(person("Alencar", "Xavier", role=c("aut", "cre"), email = "alenxav@gmail.com"), person("David", "Habier", role=c("aut")))
-Description: Lightweight, dependency-free, simplified implementation of the Pseudo-Expectation Gauss-Seidel (PEGS) algorithm used to fit multivariate ridge regression model in genomic prediction (<doi:10.1186/s12711-022-00730-w>, <doi:10.1093/genetics/iyae179>).
+Description: Lightweight, dependency-free, simplified implementation of the Pseudo-Expectation Gauss-Seidel (PEGS) algorithm.
+    It fits the multivariate ridge regression model for genomic prediction (<doi:10.1186/s12711-022-00730-w>, <doi:10.1093/genetics/iyae179>).
+    This package provides a double-precision alternative to the bWGR (<doi:10.1093/bioinformatics/btz794>) using LAPACK instead of Eigen.
 License: GPL-3
 Depends: R (>= 2.1)
 NeedsCompilation: yes
