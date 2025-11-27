@@ -2,6 +2,7 @@
 #include <Rinternals.h>
 #include <R_ext/Lapack.h>
 #include <R_ext/BLAS.h>
+#include <R_ext/RS.h> // To ensure FCLEN is available if defined
 
 #include <vector>
 #include <cmath>
@@ -10,17 +11,17 @@
 #include <stdexcept>
 
 // --- Preprocessor macro for platform-specific Fortran calling ---
-// This logic has been refined to handle inconsistencies across compilers.
-// The Clang compiler seems to handle string lengths automatically via its R headers,
-// while g++ (on both Windows and some Linux builds) requires them to be passed manually.
-#if defined(__clang__)
-  // Clang builds do not want the extra arguments.
-  #define ADD_FC_LEN
-  #define ADD_FC_LEN2
-#else
-  // Assume other compilers (like g++ on Windows or Linux) need the arguments.
+// This is the canonical way to handle differing Fortran ABI requirements.
+// The FCLEN macro is defined by R's build system only on platforms where
+// the hidden string-length arguments are expected.
+#ifdef FCLEN
+  // This build of R expects the hidden string-length arguments to be passed.
   #define ADD_FC_LEN , (size_t)1
   #define ADD_FC_LEN2 , (size_t)1, (size_t)1
+#else
+  // This build of R does not expect the hidden arguments.
+  #define ADD_FC_LEN
+  #define ADD_FC_LEN2
 #endif
 // ----------------------------------------------------------------
 
