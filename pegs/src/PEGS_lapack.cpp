@@ -6,7 +6,7 @@
 #include <stdexcept>
 
 // All R headers must be included within an extern "C" block
-// when compiling with a C++ compiler. This is the crucial fix.
+// when compiling with a C++ compiler.
 extern "C" {
 #include <R.h>
 #include <Rinternals.h>
