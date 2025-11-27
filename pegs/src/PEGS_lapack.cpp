@@ -1,16 +1,18 @@
-#include <R.h>
-#include <Rinternals.h>
-#include <R_ext/Lapack.h>
-#include <R_ext/BLAS.h>
-
+// C++ standard library headers
 #include <vector>
 #include <cmath>
 #include <numeric>
 #include <algorithm>
 #include <stdexcept>
 
-// NOTE: No preprocessor logic is needed, as we now require R >= 3.6.0,
-// which guarantees the existence of the Rf_* C wrappers.
+// All R headers must be included within an extern "C" block
+// when compiling with a C++ compiler. This is the crucial fix.
+extern "C" {
+#include <R.h>
+#include <Rinternals.h>
+#include <R_ext/Lapack.h>
+#include <R_ext/BLAS.h>
+}
 
 // Helper function for column-major indexing (as used by R and FORTRAN)
 inline int idx(int row, int col, int num_rows) {
