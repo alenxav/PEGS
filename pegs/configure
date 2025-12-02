@@ -1,0 +1,27 @@
+#!/bin/sh
+
+# Check for the C++ compiler
+: ${CXX=$(R RHOME)/bin/R CMD config CXX}
+
+# Check if the compiler supports -fopenmp
+openmp_cxx_flags="-fopenmp"
+echo "int main() { return 0; }" > conftest.c
+if $CXX -E $openmp_cxx_flags conftest.c >/dev/null 2>&1; then
+  # Compiler supports -fopenmp, so we use it
+  echo "CXX_OPENMP_FLAGS=$openmp_cxx_flags" > src/Makevars.new
+  echo "LIBS_OPENMP_FLAGS=$openmp_cxx_flags" >> src/Makevars.new
+else
+  # Compiler does not support -fopenmp, leave flags empty
+  echo "CXX_OPENMP_FLAGS=" > src/Makevars.new
+  echo "LIBS_OPENMP_FLAGS=" >> src/Makevars.new
+fi
+rm -f conftest.c
+
+# Only update Makevars if it has changed to avoid unnecessary recompilation
+if [ -f "src/Makevars" ] && cmp -s "src/Makevars.new" "src/Makevars"; then
+  rm src/Makevars.new
+else
+  mv src/Makevars.new src/Makevars
+fi
+
+exit 0

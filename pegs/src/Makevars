@@ -1,5 +1,8 @@
-# Tell the C++ compiler to enable OpenMP support
-PKG_CXXFLAGS = -fopenmp
+# These variables will be set by the configure script on non-Windows
+# On Windows, R automatically provides a compatible compiler, so -fopenmp is safe
+CXX_OPENMP_FLAGS = -fopenmp
+LIBS_OPENMP_FLAGS = -fopenmp
 
-# Tell the linker to link against the OpenMP library, in addition to BLAS/LAPACK
-PKG_LIBS = -fopenmp $(LAPACK_LIBS) $(BLAS_LIBS) $(FLIBS)
+# Use the variables to set the final flags
+PKG_CXXFLAGS = $(CXX_OPENMP_FLAGS)
+PKG_LIBS = $(LIBS_OPENMP_FLAGS) $(LAPACK_LIBS) $(BLAS_LIBS) $(FLIBS)
