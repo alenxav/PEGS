@@ -1,0 +1,5 @@
+# Tell the C++ compiler to enable OpenMP support
+PKG_CXXFLAGS = -fopenmp
+
+# Tell the linker to link against the OpenMP library, in addition to BLAS/LAPACK
+PKG_LIBS = -fopenmp $(LAPACK_LIBS) $(BLAS_LIBS) $(FLIBS)

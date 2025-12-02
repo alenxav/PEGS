@@ -2,14 +2,13 @@
 \alias{pegs}
 \title{Pseudo-Expectation Gauss-Seidel}
 \usage{
-pegs(Y, X, maxit = 100, logtol = -4, NNC = FALSE)
+pegs(Y, X, maxit = 100, logtol = -4, NonNegativeCorr = FALSE)
 }
 \arguments{
 \item{Y}{A numeric matrix (n x k) of dependent variables, where n is the number of
 observations and k is the number of response variables. Missing values should be NA.}
 
-\item{X}{A numeric matrix (n x p) of observations by parameters (i.e., markers), 
-where p is the number of parameters. A list of matrices is also accepted. }
+\item{X}{A numeric matrix (n x p) of observations by parameters (i.e., markers), where p is the number of parameters.}
 
 \item{maxit}{An integer specifying the maximum number of iterations.}
 
@@ -17,7 +16,8 @@ where p is the number of parameters. A list of matrices is also accepted. }
 The algorithm stops when the log10 of the sum of squared changes in
 coefficients is less than this value.}
 
-\item{NNC}{A logical value. If TRUE, a non-negative correlations constrain is imposed. It may help model convergence issues.}
+\item{NonNegativeCorr}{A logical value. If TRUE, the off-diagonal elements
+of the genetic variance-covariance matrix are constrained to be non-negative. It may help model convergence issues.}
 }
 \value{
 A list containing the following components:

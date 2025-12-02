@@ -35,21 +35,45 @@ void shuffle_indices(std::vector<int>& vec) {
 
 extern "C" {
   
-  SEXP PEGS_lapack(SEXP Y_R, SEXP X_R, SEXP maxit_R, SEXP logtol_R, SEXP NonNegativeCorr_R) {
+  // REFACTOR: Renamed function and changed X_R to X_list_R
+  SEXP PEGS_lapack(SEXP Y_R, SEXP X_list_R, SEXP maxit_R, SEXP logtol_R, SEXP NonNegativeCorr_R) {
     
     // --- 1. Get Input Dimensions and Parameters ---
     const int n0 = nrows(Y_R);
     const int k  = ncols(Y_R);
-    const int p  = ncols(X_R);
     const double *Y_ptr = REAL(Y_R);
-    const double *X_ptr = REAL(X_R);
     
     const int    maxit            = asInteger(maxit_R);
     const double logtol           = asReal(logtol_R);
     const bool   NonNegativeCorr  = asLogical(NonNegativeCorr_R);
     const int    one              = 1; // Used for BLAS calls
     
+    // REFACTOR: Handle the list of X matrices
+    if (!isVector(X_list_R)) {
+      error("X_list_R must be a list of numeric matrices.");
+    }
+    const int n_effects = LENGTH(X_list_R);
+    std::vector<const double*> X_ptr_list(n_effects);
+    std::vector<int> p_vec(n_effects);
+    std::vector<int> p_cumsum(n_effects + 1, 0);
+    int p_total = 0;
+    
+    for(int i = 0; i < n_effects; ++i) {
+      SEXP X_i_R = VECTOR_ELT(X_list_R, i);
+      if (!isMatrix(X_i_R) || !isNumeric(X_i_R)) {
+        error("Element %d of X_list_R is not a numeric matrix.", i + 1);
+      }
+      if (nrows(X_i_R) != n0) {
+        error("Matrix %d in X list has %d rows, but Y has %d rows.", i + 1, nrows(X_i_R), n0);
+      }
+      X_ptr_list[i] = REAL(X_i_R);
+      p_vec[i] = ncols(X_i_R);
+      p_total += p_vec[i];
+      p_cumsum[i+1] = p_total;
+    }
+    
     // --- 2. Data Preparation and Memory Allocation ---
+    // (This part is mostly unchanged as it relates to Y)
     std::vector<double> Y(n0 * k);
     std::vector<double> Z(n0 * k, 0.0);
     
@@ -64,9 +88,7 @@ extern "C" {
     
     std::vector<double> n(k, 0.0);
     for (int j = 0; j < k; ++j) {
-      for (int i = 0; i < n0; ++i) {
-        n[j] += Z[idx(i, j, n0)];
-      }
+      for (int i = 0; i < n0; ++i) n[j] += Z[idx(i, j, n0)];
     }
     
     std::vector<double> iN_orig(k);
@@ -74,9 +96,7 @@ extern "C" {
     
     std::vector<double> mu(k, 0.0);
     for (int j = 0; j < k; ++j) {
-      for (int i = 0; i < n0; ++i) {
-        mu[j] += Y[idx(i, j, n0)];
-      }
+      for (int i = 0; i < n0; ++i) mu[j] += Y[idx(i, j, n0)];
       mu[j] *= iN_orig[j];
     }
     
@@ -87,43 +107,52 @@ extern "C" {
       }
     }
     
-    // --- 3. Pre-computation for Loop (Parallelized with OpenMP) ---
-    std::vector<double> XX(p * k);
-    // OPTIMIZATION: Parallelized this expensive triple loop with OpenMP.
-    // The outer loop over 'j' is independent, making it safe to parallelize.
+    // --- 3. Pre-computation for Loop ---
+    // REFACTOR: Create lists of containers for each effect
+    std::vector<std::vector<double>> XX_list(n_effects);
+    std::vector<std::vector<double>> XSX_list(n_effects);
+    std::vector<double> MSx_list(n_effects * k, 0.0);
+    std::vector<double> TrXSX_list(n_effects * k, 0.0);
+    std::vector<std::vector<double>> tilde_list(n_effects);
+    
+    for (int i_effect = 0; i_effect < n_effects; ++i_effect) {
+      const int p_i = p_vec[i_effect];
+      const double* X_ptr_i = X_ptr_list[i_effect];
+      
+      XX_list[i_effect].resize(p_i * k);
+      XSX_list[i_effect].resize(p_i * k);
+      tilde_list[i_effect].resize(p_i * k);
+      
 #pragma omp parallel for
-    for (int j = 0; j < k; ++j) {
-      for (int i = 0; i < p; ++i) {
-        double sum_sq = 0.0;
-        for (int r = 0; r < n0; ++r) {
-          const double x_val = X_ptr[idx(r, i, n0)];
-          sum_sq += x_val * x_val * Z[idx(r, j, n0)];
+      for (int j = 0; j < k; ++j) {
+        for (int i = 0; i < p_i; ++i) {
+          double sum_sq = 0.0, sum_xz_in = 0.0;
+          for (int r = 0; r < n0; ++r) {
+            const double x_val = X_ptr_i[idx(r, i, n0)];
+            const double z_val = Z[idx(r, j, n0)];
+            sum_sq += x_val * x_val * z_val;
+            sum_xz_in += x_val * z_val;
+          }
+          XX_list[i_effect][idx(i, j, p_i)] = sum_sq;
+          sum_xz_in *= iN_orig[j];
+          XSX_list[i_effect][idx(i, j, p_i)] = XX_list[i_effect][idx(i, j, p_i)] * iN_orig[j] - (sum_xz_in * sum_xz_in);
         }
-        XX[idx(i, j, p)] = sum_sq;
       }
-    }
-    
-    std::vector<double> XSX(p * k);
-    // OPTIMIZATION: Parallelized with OpenMP.
-#pragma omp parallel for
-    for (int j = 0; j < k; ++j) {
-      for (int i = 0; i < p; ++i) {
-        double sum_xz_in = 0.0;
-        for (int r = 0; r < n0; ++r) {
-          sum_xz_in += X_ptr[idx(r, i, n0)] * Z[idx(r, j, n0)];
+      
+      for (int j = 0; j < k; ++j) {
+        for (int i = 0; i < p_i; ++i) {
+          MSx_list[idx(i_effect, j, n_effects)] += XSX_list[i_effect][idx(i, j, p_i)];
         }
-        sum_xz_in *= iN_orig[j];
-        XSX[idx(i, j, p)] = XX[idx(i, j, p)] * iN_orig[j] - (sum_xz_in * sum_xz_in);
       }
+      
+      for (int j = 0; j < k; ++j) {
+        TrXSX_list[idx(i_effect, j, n_effects)] = n[j] * MSx_list[idx(i_effect, j, n_effects)];
+      }
+      
+      char transa = 'T', transb = 'N';
+      double alpha = 1.0, beta = 0.0;
+      F77_CALL(dgemm)(&transa, &transb, &p_i, &k, &n0, &alpha, X_ptr_i, &n0, y.data(), &n0, &beta, tilde_list[i_effect].data(), &p_i FCONE FCONE);
     }
-    
-    std::vector<double> MSx(k, 0.0);
-    for (int j = 0; j < k; ++j) {
-      for (int i = 0; i < p; ++i) MSx[j] += XSX[idx(i, j, p)];
-    }
-    
-    std::vector<double> TrXSX(k);
-    for (int i = 0; i < k; ++i) TrXSX[i] = n[i] * MSx[i];
     
     std::vector<double> iN(k);
     for (int i = 0; i < k; ++i) iN[i] = (n[i] > 1) ? 1.0 / (n[i] - 1.0) : 0.0;
@@ -140,64 +169,73 @@ extern "C" {
     std::vector<double> iVe(k);
     for (int i = 0; i < k; ++i) iVe[i] = (ve[i] > 0) ? 1.0 / ve[i] : 0.0;
     
-    std::vector<double> vb(k * k, 0.0);
-    for (int i = 0; i < k; ++i) vb[idx(i, i, k)] = (MSx[i] > 0) ? ve[i] / MSx[i] : 0.0;
+    // REFACTOR: Initialize lists of variance component matrices
+    std::vector<std::vector<double>> vb_list(n_effects, std::vector<double>(k * k, 0.0));
+    std::vector<std::vector<double>> iG_list(n_effects, std::vector<double>(k * k, 0.0));
     
-    std::vector<double> iG(k * k, 0.0);
-    for (int i = 0; i < k; ++i) if (vb[idx(i, i, k)] > 0) iG[idx(i, i, k)] = 1.0 / vb[idx(i, i, k)];
-    
-    std::vector<double> tilde(p * k);
-    char transa = 'T', transb = 'N';
-    double alpha = 1.0, beta = 0.0;
-    F77_CALL(dgemm)(&transa, &transb, &p, &k, &n0,
-             &alpha,
-             X_ptr, &n0,
-             y.data(), &n0,
-             &beta,
-             tilde.data(), &p FCONE FCONE);
+    for (int i_effect = 0; i_effect < n_effects; ++i_effect) {
+      for (int i = 0; i < k; ++i) {
+        double msx_val = MSx_list[idx(i_effect, i, n_effects)];
+        double& vb_diag = vb_list[i_effect][idx(i, i, k)];
+        vb_diag = (msx_val > 0) ? ve[i] / msx_val : 0.0;
+        if (vb_diag > 0) {
+          iG_list[i_effect][idx(i, i, k)] = 1.0 / vb_diag;
+        }
+      }
+    }
     
     // --- 4. Initialize Iteration Variables ---
-    std::vector<double> b(p * k, 0.0);
+    // REFACTOR: b is now a list of matrices
+    std::vector<std::vector<double>> b_list(n_effects);
+    for(int i=0; i<n_effects; ++i) b_list[i].assign(p_vec[i] * k, 0.0);
+    
     std::vector<double> e = y;
-    std::vector<int> RGSvec(p);
+    // REFACTOR: RGSvec now covers all predictors from all effects
+    std::vector<int> RGSvec(p_total);
     std::iota(RGSvec.begin(), RGSvec.end(), 0);
     
-    double cnv = 10.0, inflate = 0.0;
+    // REFACTOR: inflate is now a list
+    std::vector<double> inflate_list(n_effects, 0.0);
+    double cnv = 10.0;
     int numit = 0;
     
     // --- 5. Main Iteration Loop ---
-    // OPTIMIZATION: Declare LHS matrix outside the loop to avoid re-allocation.
     std::vector<double> LHS(k * k);
     
     while (numit < maxit) {
-      std::vector<double> beta0 = b;
+      auto beta0_list = b_list; // Deep copy
       shuffle_indices(RGSvec);
       
-      for (int j_idx = 0; j_idx < p; ++j_idx) {
-        const int J = RGSvec[j_idx];
+      for (int j_idx = 0; j_idx < p_total; ++j_idx) {
+        const int J_global = RGSvec[j_idx];
+        
+        // REFACTOR: Map global index J_global to effect index and local column index
+        auto it = std::upper_bound(p_cumsum.begin(), p_cumsum.end(), J_global);
+        const int effect_idx = std::distance(p_cumsum.begin(), it) - 1;
+        const int local_J = J_global - p_cumsum[effect_idx];
+        
+        const int p_i = p_vec[effect_idx];
+        const double* X_ptr_i = X_ptr_list[effect_idx];
         
         std::vector<double> b0(k);
-        for (int i = 0; i < k; ++i) b0[i] = b[idx(J, i, p)];
+        for (int i = 0; i < k; ++i) b0[i] = b_list[effect_idx][idx(local_J, i, p_i)];
         
-        // OPTIMIZATION: Copy iG into the pre-allocated LHS, then modify diagonal.
-        // This is faster than creating a new std::vector in every iteration.
-        std::copy(iG.begin(), iG.end(), LHS.begin());
+        std::copy(iG_list[effect_idx].begin(), iG_list[effect_idx].end(), LHS.begin());
         for (int i = 0; i < k; ++i) {
-          LHS[idx(i, i, k)] += XX[idx(J, i, p)] * iVe[i];
+          LHS[idx(i, i, k)] += XX_list[effect_idx][idx(local_J, i, p_i)] * iVe[i];
         }
         
         std::vector<double> RHS(k);
         for (int i = 0; i < k; ++i) {
-          RHS[i] = F77_CALL(ddot)(&n0, &X_ptr[J * n0], &one, &e[i * n0], &one);
-          RHS[i] += XX[idx(J, i, p)] * b0[i];
+          RHS[i] = F77_CALL(ddot)(&n0, &X_ptr_i[local_J * n0], &one, &e[i * n0], &one);
+          RHS[i] += XX_list[effect_idx][idx(local_J, i, p_i)] * b0[i];
           RHS[i] *= iVe[i];
         }
         
-        char uplo = 'U'; 
-        int info;
+        char uplo = 'U'; int info;
         F77_CALL(dpotrf)(&uplo, &k, LHS.data(), &k, &info FCONE);
         if (info != 0) {
-          warning("Cholesky factorization failed in inner loop (marker %d). Skipping update.", J + 1);
+          warning("Cholesky factorization failed for effect %d, marker %d. Skipping update.", effect_idx + 1, local_J + 1);
           continue;
         }
         int nrhs = 1;
@@ -206,10 +244,10 @@ extern "C" {
         
         for (int i = 0; i < k; ++i) {
           const double delta_b = b1[i] - b0[i];
-          b[idx(J, i, p)] = b1[i];
+          b_list[effect_idx][idx(local_J, i, p_i)] = b1[i];
           if (fabs(delta_b) > 1e-12) { 
             const double neg_delta_b = -delta_b;
-            F77_CALL(daxpy)(&n0, &neg_delta_b, &X_ptr[J * n0], &one, &e[i * n0], &one);
+            F77_CALL(daxpy)(&n0, &neg_delta_b, &X_ptr_i[local_J * n0], &one, &e[i * n0], &one);
           }
         }
       }
@@ -219,68 +257,67 @@ extern "C" {
         const double ve_sum = F77_CALL(ddot)(&n0, &e[j * n0], &one, &y[j * n0], &one);
         ve[j]  = ve_sum * iN[j];
       }
-      
       for(int i=0; i<k; ++i) iVe[i] = (ve[i] > 0) ? 1.0 / ve[i] : 0.0;
       
-      std::vector<double> TildeHat(k * k);
-      F77_CALL(dgemm)(&transa, &transb, &k, &k, &p,
-               &alpha,
-               b.data(), &p,
-               tilde.data(), &p,
-               &beta,
-               TildeHat.data(), &k FCONE FCONE);
-      
-      for (int c = 0; c < k; ++c) {
-        for (int r = c; r < k; ++r) {
-          if (r == c) {
-            vb[idx(r, c, k)] = (TrXSX[r] > 0) ? TildeHat[idx(r, c, k)] / TrXSX[r] : 0.0;
-          } else {
-            const double denom = TrXSX[r] + TrXSX[c];
-            const double val = (denom > 0) ? (TildeHat[idx(r, c, k)] + TildeHat[idx(c, r, k)]) / denom : 0.0;
-            vb[idx(r, c, k)] = vb[idx(c, r, k)] = val;
+      // REFACTOR: Loop to update variance components for each effect
+      for (int i_effect = 0; i_effect < n_effects; ++i_effect) {
+        const int p_i = p_vec[i_effect];
+        std::vector<double> TildeHat(k * k);
+        char transa = 'T', transb = 'N';
+        double alpha = 1.0, beta = 0.0;
+        F77_CALL(dgemm)(&transa, &transb, &k, &k, &p_i, &alpha,
+                 b_list[i_effect].data(), &p_i,
+                 tilde_list[i_effect].data(), &p_i,
+                 &beta, TildeHat.data(), &k FCONE FCONE);
+        
+        for (int c = 0; c < k; ++c) {
+          for (int r = c; r < k; ++r) {
+            const double tr_r = TrXSX_list[idx(i_effect, r, n_effects)];
+            const double tr_c = TrXSX_list[idx(i_effect, c, n_effects)];
+            if (r == c) {
+              vb_list[i_effect][idx(r, c, k)] = (tr_r > 0) ? TildeHat[idx(r, c, k)] / tr_r : 0.0;
+            } else {
+              const double denom = tr_r + tr_c;
+              const double val = (denom > 0) ? (TildeHat[idx(r, c, k)] + TildeHat[idx(c, r, k)]) / denom : 0.0;
+              vb_list[i_effect][idx(r, c, k)] = vb_list[i_effect][idx(c, r, k)] = val;
+            }
           }
         }
-      }
-      
-      if (NonNegativeCorr) {
-        for (int i = 0; i < k * k; ++i) if (vb[i] < 0.0) vb[i] = 0.0;
-      }
-      
-      std::vector<double> vb_copy = vb;
-      std::vector<double> eigvals(k);
-      char jobz = 'N', uplo_eig = 'U'; 
-      int info_eig;
-      int lwork = std::max(1, 3 * k - 1); 
-      std::vector<double> work(lwork);
-      F77_CALL(dsyev)(&jobz, &uplo_eig, &k, 
-               vb_copy.data(), &k, 
-               eigvals.data(), 
-               work.data(), &lwork, 
-               &info_eig FCONE FCONE);
-      
-      double MinDVb = eigvals[0];
-      for (int i = 1; i < k; ++i) if (eigvals[i] < MinDVb) MinDVb = eigvals[i];
-      
-      if (MinDVb < 0.001) {
-        const double new_inflate = fabs(MinDVb * 1.1);
-        if (new_inflate > inflate) inflate = new_inflate;
-      }
-      for (int i = 0; i < k; ++i) vb[idx(i, i, k)] += inflate;
-      
-      vb_copy = vb;
-      char uplo_inv = 'U'; 
-      int info_inv;
-      F77_CALL(dpotrf)(&uplo_inv, &k, vb_copy.data(), &k, &info_inv FCONE);
-      if (info_inv == 0) {
-        F77_CALL(dpotri)(&uplo_inv, &k, vb_copy.data(), &k, &info_inv FCONE);
-        if (info_inv == 0) {
-          for (int c = 0; c < k; ++c)
-            for (int r = c + 1; r < k; ++r)
-              vb_copy[idx(r, c, k)] = vb_copy[idx(c, r, k)];
-          iG = vb_copy;
+        
+        if (NonNegativeCorr) {
+          for (double &val : vb_list[i_effect]) if (val < 0.0) val = 0.0;
         }
-      }
+        
+        std::vector<double> vb_copy = vb_list[i_effect];
+        std::vector<double> eigvals(k);
+        char jobz = 'N', uplo_eig = 'U'; int info_eig;
+        int lwork = std::max(1, 3 * k - 1); std::vector<double> work(lwork);
+        F77_CALL(dsyev)(&jobz, &uplo_eig, &k, vb_copy.data(), &k, eigvals.data(), work.data(), &lwork, &info_eig FCONE FCONE);
+        
+        double MinDVb = eigvals[0];
+        for (int i = 1; i < k; ++i) if (eigvals[i] < MinDVb) MinDVb = eigvals[i];
+        
+        if (MinDVb < 0.001) {
+          const double new_inflate = fabs(MinDVb * 1.1);
+          if (new_inflate > inflate_list[i_effect]) inflate_list[i_effect] = new_inflate;
+        }
+        for (int i = 0; i < k; ++i) vb_list[i_effect][idx(i, i, k)] += inflate_list[i_effect];
+        
+        vb_copy = vb_list[i_effect];
+        char uplo_inv = 'U'; int info_inv;
+        F77_CALL(dpotrf)(&uplo_inv, &k, vb_copy.data(), &k, &info_inv FCONE);
+        if (info_inv == 0) {
+          F77_CALL(dpotri)(&uplo_inv, &k, vb_copy.data(), &k, &info_inv FCONE);
+          if (info_inv == 0) {
+            for (int c = 0; c < k; ++c)
+              for (int r = c + 1; r < k; ++r)
+                vb_copy[idx(r, c, k)] = vb_copy[idx(c, r, k)];
+            iG_list[i_effect] = vb_copy;
+          }
+        }
+      } // End loop over effects for variance components
       
+      // This part remains global
       std::vector<double> b0_e(k, 0.0);
       for (int j = 0; j < k; ++j) {
         for (int i = 0; i < n0; ++i) b0_e[j] += e[idx(i, j, n0)];
@@ -290,19 +327,16 @@ extern "C" {
 #pragma omp parallel for
       for (int j = 0; j < k; ++j) {
         for (int i = 0; i < n0; ++i) {
-          // Applying the Z mask efficiently
-          if (Z[idx(i, j, n0)] > 0) {
-            e[idx(i, j, n0)] -= b0_e[j];
-          } else {
-            e[idx(i, j, n0)] = 0.0;
-          }
+          e[idx(i, j, n0)] = (e[idx(i, j, n0)] - b0_e[j]) * Z[idx(i, j, n0)];
         }
       }
       
       double diff_sum_sq = 0.0;
-      for (size_t i = 0; i < b.size(); ++i) {
-        const double diff = beta0[i] - b[i];
-        diff_sum_sq += diff * diff;
+      for (int i_effect = 0; i_effect < n_effects; ++i_effect) {
+        for (size_t i = 0; i < b_list[i_effect].size(); ++i) {
+          const double diff = beta0_list[i_effect][i] - b_list[i_effect][i];
+          diff_sum_sq += diff * diff;
+        }
       }
       cnv = log10(diff_sum_sq);
       ++numit;
@@ -314,46 +348,57 @@ extern "C" {
     std::vector<double> h2(k);
     for (int i = 0; i < k; ++i) h2[i] = (vy[i] > 0) ? 1.0 - ve[i] / vy[i] : 0.0;
     
+    // REFACTOR: Accumulate predictions from all effects
     std::vector<double> hat(n0 * k, 0.0);
-    char transb_final = 'N';
-    F77_CALL(dgemm)(&transb_final, &transb_final, &n0, &k, &p,
-             &alpha,
-             X_ptr, &n0,
-             b.data(), &p,
-             &beta,
-             hat.data(), &n0 FCONE FCONE);
+    for (int i_effect = 0; i_effect < n_effects; ++i_effect) {
+      char transb_final = 'N';
+      // Use beta=1.0 to accumulate results into 'hat' after the first effect
+      double beta = (i_effect == 0) ? 0.0 : 1.0;
+      double alpha = 1.0;
+      F77_CALL(dgemm)(&transb_final, &transb_final, &n0, &k, &p_vec[i_effect],
+               &alpha, X_ptr_list[i_effect], &n0,
+               b_list[i_effect].data(), &p_vec[i_effect],
+                                              &beta, hat.data(), &n0 FCONE FCONE);
+    }
 #pragma omp parallel for
     for (int j = 0; j < k; ++j) 
       for (int i = 0; i < n0; ++i) 
         hat[idx(i, j, n0)] += mu[j];
     
-    std::vector<double> GC(k * k, 0.0);
-    for (int c = 0; c < k; ++c) {
-      for (int r = c; r < k; ++r) {
-        const double sd_r = sqrt(vb[idx(r, r, k)]);
-        const double sd_c = sqrt(vb[idx(c, c, k)]);
-        if (sd_r > 0 && sd_c > 0) {
-          const double val = vb[idx(r, c, k)] / (sd_r * sd_c);
-          GC[idx(r, c, k)] = val;
-          GC[idx(c, r, k)] = val;
-        } else {
-          GC[idx(r, c, k)] = 0.0;
-          GC[idx(c, r, k)] = 0.0;
+    // REFACTOR: Create a list of GC matrices
+    std::vector<std::vector<double>> GC_list(n_effects, std::vector<double>(k*k, 0.0));
+    for (int i_effect = 0; i_effect < n_effects; ++i_effect) {
+      for (int c = 0; c < k; ++c) {
+        for (int r = c; r < k; ++r) {
+          const double sd_r = sqrt(vb_list[i_effect][idx(r, r, k)]);
+          const double sd_c = sqrt(vb_list[i_effect][idx(c, c, k)]);
+          if (sd_r > 0 && sd_c > 0) {
+            const double val = vb_list[i_effect][idx(r, c, k)] / (sd_r * sd_c);
+            GC_list[i_effect][idx(r, c, k)] = val;
+            GC_list[i_effect][idx(c, r, k)] = val;
+          }
         }
       }
     }
     
     // --- 7. Create R List for Output ---
-    const char *names[] = {"mu", "b", "hat", "h2", "GC", "bend", "numit", "cnv", ""};
+    // REFACTOR: List names reflect the new output structure
+    const char *names[] = {"mu", "b_list", "hat", "h2", "GC_list", "bend_list", "numit", "cnv", ""};
     SEXP res = PROTECT(mkNamed(VECSXP, names));
     
     SEXP mu_R = PROTECT(allocVector(REALSXP, k));
     if (k > 0) std::copy(mu.begin(), mu.end(), REAL(mu_R));
     SET_VECTOR_ELT(res, 0, mu_R);
     
-    SEXP b_R = PROTECT(allocMatrix(REALSXP, p, k));
-    if (p * k > 0) std::copy(b.begin(), b.end(), REAL(b_R));
-    SET_VECTOR_ELT(res, 1, b_R);
+    // REFACTOR: Create a list for 'b' coefficients
+    SEXP b_R_list = PROTECT(allocVector(VECSXP, n_effects));
+    for (int i = 0; i < n_effects; ++i) {
+      SEXP b_i_R = PROTECT(allocMatrix(REALSXP, p_vec[i], k));
+      if (p_vec[i] * k > 0) std::copy(b_list[i].begin(), b_list[i].end(), REAL(b_i_R));
+      SET_VECTOR_ELT(b_R_list, i, b_i_R);
+      UNPROTECT(1);
+    }
+    SET_VECTOR_ELT(res, 1, b_R_list);
     
     SEXP hat_R = PROTECT(allocMatrix(REALSXP, n0, k));
     if (n0 * k > 0) std::copy(hat.begin(), hat.end(), REAL(hat_R));
@@ -363,15 +408,25 @@ extern "C" {
     if (k > 0) std::copy(h2.begin(), h2.end(), REAL(h2_R));
     SET_VECTOR_ELT(res, 3, h2_R);
     
-    SEXP GC_R = PROTECT(allocMatrix(REALSXP, k, k));
-    if (k * k > 0) std::copy(GC.begin(), GC.end(), REAL(GC_R));
-    SET_VECTOR_ELT(res, 4, GC_R);
+    // REFACTOR: Create a list for 'GC' matrices
+    SEXP GC_R_list = PROTECT(allocVector(VECSXP, n_effects));
+    for (int i = 0; i < n_effects; ++i) {
+      SEXP GC_i_R = PROTECT(allocMatrix(REALSXP, k, k));
+      if (k*k > 0) std::copy(GC_list[i].begin(), GC_list[i].end(), REAL(GC_i_R));
+      SET_VECTOR_ELT(GC_R_list, i, GC_i_R);
+      UNPROTECT(1);
+    }
+    SET_VECTOR_ELT(res, 4, GC_R_list);
     
-    SET_VECTOR_ELT(res, 5, ScalarReal(inflate));
+    // REFACTOR: Create a vector for 'bend' values
+    SEXP bend_R = PROTECT(allocVector(REALSXP, n_effects));
+    if (n_effects > 0) std::copy(inflate_list.begin(), inflate_list.end(), REAL(bend_R));
+    SET_VECTOR_ELT(res, 5, bend_R);
+    
     SET_VECTOR_ELT(res, 6, ScalarInteger(numit));
     SET_VECTOR_ELT(res, 7, ScalarReal(cnv));
     
-    UNPROTECT(6); // res, mu_R, b_R, hat_R, h2_R, GC_R
+    UNPROTECT(7); // res, mu_R, b_R_list, hat_R, h2_R, GC_R_list, bend_R
     return res;
   }
   
