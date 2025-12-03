@@ -1,5 +1,5 @@
 
-pegs <- function(Y, X, maxit = 100, logtol = -4.0, NonNegativeCorr = FALSE) {
+pegs <- function(Y, X, maxit = 100, logtol = -4.0, NNC = FALSE) {
   
   # --- 1. Input Validation and Preparation for Y ---
   if (!is.matrix(Y)) Y <- as.matrix(Y)
@@ -38,7 +38,7 @@ pegs <- function(Y, X, maxit = 100, logtol = -4.0, NonNegativeCorr = FALSE) {
                X,               # Pass the list of matrices
                as.integer(maxit),
                as.double(logtol),
-               as.logical(NonNegativeCorr))
+               as.logical(NNC))
   
   # --- 4. Process and Name the Output for Clarity ---
   # Rename list elements returned from C++ to be more user-friendly
