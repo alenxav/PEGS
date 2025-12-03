@@ -1,0 +1,13 @@
+bibentry(
+  bibtype      = "Article",
+  title        = "A new approach fits multivariate genomic prediction models efficiently",
+  author       =  c(person("Alencar", "Xavier", role=c("aut", "cre"), email = "alenxav@gmail.com", comment = c(ORCID = "0000-0001-5034-9954")), person("David", "Habier", role=c("aut"))),
+  journal      = "Genetics Selection Evolution",
+  volume       = "54",
+  number       = "1",
+  year         = "2022",
+  pages        = "45",
+  doi          = "10.1186/s12711-022-00730-w",
+  textVersion  = "Xavier, A. and Habier, D. (2022). A new approach fits multivariate genomic prediction models efficiently. GSE. 54(1), 45.",
+  mheader = "To cite pegs in publications use:"
+)
