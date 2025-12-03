@@ -1,2 +1,0 @@
-useDynLib(pegs, .registration = TRUE)
-export(pegs)
