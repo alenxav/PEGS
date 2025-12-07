@@ -284,11 +284,11 @@ extern "C" {
         double MinDVb = eigvals[0];
         for (int i = 1; i < k; ++i) if (eigvals[i] < MinDVb) MinDVb = eigvals[i];
         
-        if (MinDVb < 0.00001) {
+        if (MinDVb < 0.0001) {
           const double new_inflate = fabs(MinDVb * 1.1);
           if (new_inflate > inflate_list[i_effect]) inflate_list[i_effect] = new_inflate;          
         }
-        if ( k>=3 || MinDVb < 0.00001 ){ 
+        if ( k>=3 || MinDVb < 0.0001 ){ 
           for (int i = 0; i < k; ++i) vb_list[i_effect][idx(i, i, k)] += inflate_list[i_effect]; 
         }
         
@@ -413,5 +413,6 @@ extern "C" {
   
 
 } // extern "C"
+
 
 
