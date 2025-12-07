@@ -5,9 +5,6 @@
 #include <algorithm>
 #include <stdexcept>
 
-// REMOVED: OpenMP header is no longer needed
-// #include <omp.h>
-
 // All R headers must be included within an extern "C" block
 // when compiling with a C++ compiler.
 extern "C" {
@@ -416,4 +413,5 @@ extern "C" {
   
 
 } // extern "C"
+
 
