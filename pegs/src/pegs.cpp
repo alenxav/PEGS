@@ -288,10 +288,10 @@ extern "C" {
         for (int i = 1; i < k; ++i) if (eigvals[i] < MinDVb) MinDVb = eigvals[i];
         
         if (MinDVb < 0.001) {
-          const double new_inflate = fabs(MinDVb * 1.1);
-          if (new_inflate > inflate_list[i_effect]) inflate_list[i_effect] = new_inflate;
+          const double new_inflate = fabs(MinDVb * 0.1);
+          if (new_inflate > inflate_list[i_effect]) inflate_list[i_effect] = new_inflate;          
         }
-        for (int i = 0; i < k; ++i) vb_list[i_effect][idx(i, i, k)] += inflate_list[i_effect];
+        if ( k>5 || MinDVb < 0.001 ){ for (int i = 0; i < k; ++i) vb_list[i_effect][idx(i, i, k)] += inflate_list[i_effect]; }
         
         vb_copy = vb_list[i_effect];
         char uplo_inv = 'U'; int info_inv;
