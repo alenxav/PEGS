@@ -3,7 +3,7 @@
 \title{Pseudo-Expectation Gauss-Seidel for Multi-Trait Models}
 \usage{
 pegs(Y, X, maxit = 100, logtol = -4, NNC = FALSE, 
-     covbend = 1.1, covMinEv = 1e-4, XFA = -1)
+     covbend = 1.1, covMinEv = 10e-4, XFA = -1)
 }
 \arguments{
 \item{Y}{A numeric matrix (n x k) of dependent variables, where n is the number of

@@ -1,5 +1,5 @@
 pegs <- function(Y, X, maxit = 100, logtol = -4.0, NNC = FALSE, 
-                 covbend = 1.1, covMinEv = 1e-4, XFA = -1) {
+                 covbend = 1.1, covMinEv = 10e-4, XFA = -1) {
   
   # --- 1. Input Validation and Preparation for Y ---
   if (!is.matrix(Y)) Y <- as.matrix(Y)
