@@ -2,13 +2,13 @@
 #include <Rinternals.h>
 #include <R_ext/Rdynload.h>
 
-// Forward declaration of the function from PEGS_lapack.cpp
-extern "C" SEXP PEGS_lapack(SEXP, SEXP, SEXP, SEXP, SEXP);
+// Forward declaration of the function from pegs.cpp
+extern "C" SEXP PEGS_lapack(SEXP, SEXP, SEXP, SEXP, SEXP, SEXP, SEXP, SEXP);
 
 // Define the table of functions available to .Call()
 static const R_CallMethodDef CallEntries[] = {
   // { "name_in_R", (DL_FUNC) &function_pointer, number_of_arguments }
-  {"PEGS_lapack", (DL_FUNC) &PEGS_lapack, 5},
+  {"PEGS_lapack", (DL_FUNC) &PEGS_lapack, 8},
   
   // This terminator is required
   {NULL, NULL, 0}

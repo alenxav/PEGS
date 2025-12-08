@@ -32,7 +32,8 @@ void shuffle_indices(std::vector<int>& vec) {
 
 extern "C" {
   
-  SEXP PEGS_lapack(SEXP Y_R, SEXP X_list_R, SEXP maxit_R, SEXP logtol_R, SEXP NonNegativeCorr_R) {
+  SEXP PEGS_lapack(SEXP Y_R, SEXP X_list_R, SEXP maxit_R, SEXP logtol_R, 
+                   SEXP NonNegativeCorr_R, SEXP covbend_R, SEXP covMinEv_R, SEXP XFA_R) {
     
     // --- 1. Get Input Dimensions and Parameters ---
     const int n0 = nrows(Y_R);
@@ -42,7 +43,12 @@ extern "C" {
     const int    maxit            = asInteger(maxit_R);
     const double logtol           = asReal(logtol_R);
     const bool   NonNegativeCorr  = asLogical(NonNegativeCorr_R);
-    const int    one              = 1; // Used for BLAS calls
+    const double covbend          = asReal(covbend_R);
+    const double covMinEv         = asReal(covMinEv_R);
+    int          XFA              = asInteger(XFA_R);
+    if (XFA < 0) XFA = k; // If XFA is negative, use all components (no reduction)
+    
+    const int one = 1; // Used for BLAS calls
     
     if (!isVector(X_list_R)) {
       error("X_list_R must be a list of numeric matrices.");
@@ -116,7 +122,6 @@ extern "C" {
       XSX_list[i_effect].resize(p_i * k);
       tilde_list[i_effect].resize(p_i * k);
       
-      // REMOVED: #pragma omp parallel for
       for (int j = 0; j < k; ++j) {
         for (int i = 0; i < p_i; ++i) {
           double sum_sq = 0.0, sum_xz_in = 0.0;
@@ -240,7 +245,6 @@ extern "C" {
         }
       }
       
-      // REMOVED: #pragma omp parallel for
       for (int j = 0; j < k; ++j) {
         const double ve_sum = F77_CALL(ddot)(&n0, &e[j * n0], &one, &y[j * n0], &one);
         ve[j]  = ve_sum * iN[j];
@@ -271,38 +275,105 @@ extern "C" {
           }
         }
         
+        // --- START: New XFA and Bending Logic ---
+        
+        // XFA: Factor-analytic approximation
+        if (XFA == 0) {
+          // Make traits independent, keeping only diagonal variance
+          std::vector<double> sd_diag(k);
+          for(int i=0; i<k; ++i) sd_diag[i] = vb_list[i_effect][idx(i,i,k)];
+          std::fill(vb_list[i_effect].begin(), vb_list[i_effect].end(), 0.0);
+          for(int i=0; i<k; ++i) vb_list[i_effect][idx(i,i,k)] = sd_diag[i];
+        } else if (XFA > 0 && XFA < k) {
+          // Reconstruct vb from top XFA principal components
+          std::vector<double> sd(k), inv_sd(k);
+          for (int i = 0; i < k; ++i) {
+            sd[i] = sqrt(std::max(vb_list[i_effect][idx(i, i, k)], 1e-24));
+            inv_sd[i] = (sd[i] > 1e-12) ? 1.0 / sd[i] : 0.0;
+          }
+          
+          // Convert vb to correlation matrix GC
+          std::vector<double> GC = vb_list[i_effect];
+          for (int c = 0; c < k; ++c) {
+            for (int r = 0; r < k; ++r) {
+              GC[idx(r, c, k)] *= inv_sd[r] * inv_sd[c];
+            }
+          }
+          
+          // Eigen decomposition of GC
+          char jobz_eig = 'V', uplo_eig = 'U'; int info_eig;
+          int lwork = std::max(1, 3 * k - 1);
+          std::vector<double> work(lwork), eigvals(k);
+          F77_CALL(dsyev)(&jobz_eig, &uplo_eig, &k, GC.data(), &k, eigvals.data(), work.data(), &lwork, &info_eig FCONE FCONE);
+          
+          // Reconstruct GC = V_reduced * D_reduced_diag * V_reduced'
+          std::vector<double> V_reduced(k * XFA);
+          std::vector<double> Temp(k * XFA);
+          double alpha_gemm = 1.0, beta_gemm = 0.0;
+          
+          // V_reduced are the last XFA columns of GC (eigenvectors)
+          // Temp = V_reduced * D_reduced_diag
+          for (int j = 0; j < XFA; ++j) {
+            int eig_idx = k - XFA + j;
+            for (int i = 0; i < k; ++i) {
+              Temp[idx(i, j, k)] = GC[idx(i, eig_idx, k)] * eigvals[eig_idx];
+            }
+          }
+          // GC = Temp * V_reduced'
+          char transa_gemm = 'N', transb_gemm = 'T';
+          F77_CALL(dgemm)(&transa_gemm, &transb_gemm, &k, &k, &XFA, &alpha_gemm, Temp.data(), &k, &GC[idx(0, k - XFA, k)], &k, &beta_gemm, vb_list[i_effect].data(), &k FCONE FCONE);
+          
+          // Rescale back to covariance matrix
+          for (int c = 0; c < k; ++c) {
+            for (int r = c; r < k; ++r) {
+              double val = vb_list[i_effect][idx(r, c, k)] * sd[r] * sd[c];
+              vb_list[i_effect][idx(r, c, k)] = val;
+              vb_list[i_effect][idx(c, r, k)] = val;
+            }
+            vb_list[i_effect][idx(c,c,k)] = sd[c]*sd[c]; // Enforce diagonal
+          }
+        }
+        
+        // Bending: Ensure positive semi-definiteness
         if (NonNegativeCorr) {
           for (double &val : vb_list[i_effect]) if (val < 0.0) val = 0.0;
         }
         
-        std::vector<double> vb_copy = vb_list[i_effect];
+        std::vector<double> vb_copy_eig = vb_list[i_effect];
         std::vector<double> eigvals(k);
         char jobz = 'N', uplo_eig = 'U'; int info_eig;
         int lwork = std::max(1, 3 * k - 1); std::vector<double> work(lwork);
-        F77_CALL(dsyev)(&jobz, &uplo_eig, &k, vb_copy.data(), &k, eigvals.data(), work.data(), &lwork, &info_eig FCONE FCONE);
+        F77_CALL(dsyev)(&jobz, &uplo_eig, &k, vb_copy_eig.data(), &k, eigvals.data(), work.data(), &lwork, &info_eig FCONE FCONE);
         
         double MinDVb = eigvals[0];
         for (int i = 1; i < k; ++i) if (eigvals[i] < MinDVb) MinDVb = eigvals[i];
         
-        if (MinDVb < 0.0001) {
-          const double new_inflate = fabs(MinDVb * 1.1);
-          if (new_inflate > inflate_list[i_effect]) inflate_list[i_effect] = new_inflate;          
-        }
-        if ( k>=3 || MinDVb < 0.0001 ){ 
-          for (int i = 0; i < k; ++i) vb_list[i_effect][idx(i, i, k)] += inflate_list[i_effect]; 
+        if (MinDVb < covMinEv) {
+          const double new_inflate = fabs(MinDVb * covbend);
+          if (new_inflate > inflate_list[i_effect]) inflate_list[i_effect] = new_inflate;
         }
         
-        vb_copy = vb_list[i_effect];
+        if(k >= 5 || MinDVb < covMinEv){
+          for (int i = 0; i < k; ++i) vb_list[i_effect][idx(i, i, k)] += inflate_list[i_effect];
+        }
+        // --- END: New XFA and Bending Logic ---
+        
+        // Invert vb to get iG
+        std::vector<double> vb_copy_inv = vb_list[i_effect];
         char uplo_inv = 'U'; int info_inv;
-        F77_CALL(dpotrf)(&uplo_inv, &k, vb_copy.data(), &k, &info_inv FCONE);
+        F77_CALL(dpotrf)(&uplo_inv, &k, vb_copy_inv.data(), &k, &info_inv FCONE);
         if (info_inv == 0) {
-          F77_CALL(dpotri)(&uplo_inv, &k, vb_copy.data(), &k, &info_inv FCONE);
+          F77_CALL(dpotri)(&uplo_inv, &k, vb_copy_inv.data(), &k, &info_inv FCONE);
           if (info_inv == 0) {
             for (int c = 0; c < k; ++c)
               for (int r = c + 1; r < k; ++r)
-                vb_copy[idx(r, c, k)] = vb_copy[idx(c, r, k)];
-            iG_list[i_effect] = vb_copy;
+                vb_copy_inv[idx(r, c, k)] = vb_copy_inv[idx(c, r, k)];
+            iG_list[i_effect] = vb_copy_inv;
+          } else {
+            warning("dpotri failed for effect %d; iG not updated.", i_effect + 1);
           }
+        } else {
+          warning("dpotrf failed for bent vb in effect %d; iG not updated.", i_effect + 1);
         }
       } 
       
@@ -312,7 +383,6 @@ extern "C" {
         b0_e[j] *= iN_orig[j]; 
         mu[j] += b0_e[j];
       }
-      // REMOVED: #pragma omp parallel for
       for (int j = 0; j < k; ++j) {
         for (int i = 0; i < n0; ++i) {
           e[idx(i, j, n0)] = (e[idx(i, j, n0)] - b0_e[j]) * Z[idx(i, j, n0)];
@@ -326,7 +396,7 @@ extern "C" {
           diff_sum_sq += diff * diff;
         }
       }
-      cnv = log10(diff_sum_sq);
+      cnv = (diff_sum_sq > 0) ? log10(diff_sum_sq) : -INFINITY;
       ++numit;
       if (numit % 100 == 0) { Rprintf("Iter: %d || Conv: %f\n", numit, cnv); }
       if (cnv < logtol) break;
@@ -338,15 +408,14 @@ extern "C" {
     
     std::vector<double> hat(n0 * k, 0.0);
     for (int i_effect = 0; i_effect < n_effects; ++i_effect) {
-      char transb_final = 'N';
+      char transa_final = 'N', transb_final = 'N';
       double beta = (i_effect == 0) ? 0.0 : 1.0;
       double alpha = 1.0;
-      F77_CALL(dgemm)(&transb_final, &transb_final, &n0, &k, &p_vec[i_effect],
+      F77_CALL(dgemm)(&transa_final, &transb_final, &n0, &k, &p_vec[i_effect],
                &alpha, X_ptr_list[i_effect], &n0,
                b_list[i_effect].data(), &p_vec[i_effect],
                                               &beta, hat.data(), &n0 FCONE FCONE);
     }
-    // REMOVED: #pragma omp parallel for
     for (int j = 0; j < k; ++j) 
       for (int i = 0; i < n0; ++i) 
         hat[idx(i, j, n0)] += mu[j];
@@ -355,9 +424,9 @@ extern "C" {
     for (int i_effect = 0; i_effect < n_effects; ++i_effect) {
       for (int c = 0; c < k; ++c) {
         for (int r = c; r < k; ++r) {
-          const double sd_r = sqrt(vb_list[i_effect][idx(r, r, k)]);
-          const double sd_c = sqrt(vb_list[i_effect][idx(c, c, k)]);
-          if (sd_r > 0 && sd_c > 0) {
+          const double sd_r = sqrt(std::max(0.0, vb_list[i_effect][idx(r, r, k)]));
+          const double sd_c = sqrt(std::max(0.0, vb_list[i_effect][idx(c, c, k)]));
+          if (sd_r > 1e-12 && sd_c > 1e-12) {
             const double val = vb_list[i_effect][idx(r, c, k)] / (sd_r * sd_c);
             GC_list[i_effect][idx(r, c, k)] = val;
             GC_list[i_effect][idx(c, r, k)] = val;
@@ -411,8 +480,4 @@ extern "C" {
     return res;
   }
   
-
 } // extern "C"
-
-
-

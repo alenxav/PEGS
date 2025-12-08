@@ -1,5 +1,5 @@
-
-pegs <- function(Y, X, maxit = 100, logtol = -4.0, NNC = FALSE) {
+pegs <- function(Y, X, maxit = 100, logtol = -4.0, NNC = FALSE, 
+                 covbend = 1.1, covMinEv = 1e-4, XFA = -1) {
   
   # --- 1. Input Validation and Preparation for Y ---
   if (!is.matrix(Y)) Y <- as.matrix(Y)
@@ -19,10 +19,10 @@ pegs <- function(Y, X, maxit = 100, logtol = -4.0, NNC = FALSE) {
   }
   
   # Ensure all elements in the list are numeric matrices
-  X <- lapply(X, function(X) {
-    if (!is.matrix(X)) X <- as.matrix(X)
-    if (typeof(X) == "integer") storage.mode(X) <- "numeric"
-    return(X)
+  X <- lapply(X, function(mat) {
+    if (!is.matrix(mat)) mat <- as.matrix(mat)
+    if (typeof(mat) == "integer") storage.mode(mat) <- "numeric"
+    return(mat)
   })
   
   # Get names for the output lists. Create default names if missing.
@@ -38,7 +38,11 @@ pegs <- function(Y, X, maxit = 100, logtol = -4.0, NNC = FALSE) {
                X,               # Pass the list of matrices
                as.integer(maxit),
                as.double(logtol),
-               as.logical(NNC))
+               as.logical(NNC),
+               as.double(covbend),
+               as.double(covMinEv),
+               as.integer(XFA)
+  )
   
   # --- 4. Process and Name the Output for Clarity ---
   # Rename list elements returned from C++ to be more user-friendly
@@ -74,10 +78,11 @@ pegs <- function(Y, X, maxit = 100, logtol = -4.0, NNC = FALSE) {
   }
   
   
-  # If there is a single random effect
-  if(length(res$b)==1){
-    res$b = res$b[[1]]
-    res$GC = res$GC[[1]]
+  # If there is a single random effect, unlist the result for convenience
+  if(length(res$b) == 1){
+    res$b <- res$b[[1]]
+    res$GC <- res$GC[[1]]
+    res$bend <- res$bend[[1]]
   }
   
   
